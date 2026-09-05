@@ -12,9 +12,9 @@ header("Expires: 0");
     <meta name="description" content="Public and private hospitals, connected for better care." />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <script type="module" crossorigin src="./assets/app.js?v=1788564250254"></script>
-    <link rel="stylesheet" crossorigin href="./assets/app.css?v=1788564250254">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <script type="module" crossorigin src="./assets/app.js?v=1788584863342"></script>
+    <link rel="stylesheet" crossorigin href="./assets/app.css?v=1788584863342">
   </head>
   <body class="text-slate-900 font-['Plus_Jakarta_Sans',sans-serif] antialiased min-h-screen bg-slate-900">
     <div id="root"></div>
