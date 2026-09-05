@@ -424,11 +424,16 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
     });
 
     const map = new Map();
+    const getKey = (hosp: string, rNo: string) => {
+      const cleanNo = String(rNo || '').toLowerCase().replace(/^(room|cabin|icu|ward)[-\s]*/i, '').trim();
+      return `${hosp.toLowerCase().trim()}_${cleanNo}`;
+    };
+
     // Live database bookings take priority
-    dbRooms.forEach(r => map.set(`${r.hospital}_${r.room_no}`, r));
+    dbRooms.forEach(r => map.set(getKey(r.hospital, r.room_no), r));
     // Fill remaining default rooms
     roomsList.forEach((r: any) => {
-      const key = `${r.hospital}_${r.room_no}`;
+      const key = getKey(r.hospital, r.room_no);
       if (!map.has(key)) {
         const isAvail = r.status === 'Available' || r.patient === 'Vacant';
         map.set(key, {

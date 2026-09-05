@@ -772,6 +772,10 @@ export function PatientDashboard({ user, onLogout, onNavigateTab }: PatientDashb
 
   useEffect(() => {
     loadPatientData();
+    const interval = setInterval(() => {
+      loadPatientData();
+    }, 3000);
+    return () => clearInterval(interval);
   }, []);
 
   const loadMasterHospitals = () => {
@@ -866,17 +870,22 @@ export function PatientDashboard({ user, onLogout, onNavigateTab }: PatientDashb
   // Fetch live room availability for selected hospital
   useEffect(() => {
     if (!selectedHosp) return;
-    fetch(getApiUrl(`rooms.php?hospital=${encodeURIComponent(selectedHosp.name)}&ward=${encodeURIComponent(roomWard)}`))
-      .then(res => res.json())
-      .then(data => {
-        if (data.success && data.rooms) {
-          setHospRooms(data.rooms);
-          const firstAvail = data.rooms.find((r: any) => r.status === 'Available');
-          if (firstAvail) setSelectedRoomNum(firstAvail.roomNumber);
-          else setSelectedRoomNum('');
-        }
-      })
-      .catch(() => {});
+    const fetchRooms = () => {
+      fetch(getApiUrl(`rooms.php?hospital=${encodeURIComponent(selectedHosp.name)}&ward=${encodeURIComponent(roomWard)}`))
+        .then(res => res.json())
+        .then(data => {
+          if (data.success && data.rooms) {
+            setHospRooms(data.rooms);
+            const firstAvail = data.rooms.find((r: any) => r.status === 'Available');
+            if (firstAvail && !selectedRoomNum) setSelectedRoomNum(firstAvail.roomNumber);
+          }
+        })
+        .catch(() => {});
+    };
+
+    fetchRooms();
+    const interval = setInterval(fetchRooms, 3000);
+    return () => clearInterval(interval);
   }, [selectedHosp, roomWard]);
 
   // Handle Add New Hospital

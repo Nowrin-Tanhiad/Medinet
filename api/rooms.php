@@ -9,24 +9,44 @@ if ($method === 'GET') {
     $ward = trim($_GET['ward'] ?? 'General Ward');
 
     try {
-        $stmt = $pdo->prepare("SELECT * FROM room_bookings WHERE hospital = :hospital AND ward = :ward");
-        $stmt->execute([':hospital' => $hospital, ':ward' => $ward]);
-        $existingBookings = $stmt->fetchAll();
+        $stmt = $pdo->prepare("SELECT * FROM room_bookings WHERE hospital = :hospital ORDER BY id DESC");
+        $stmt->execute([':hospital' => $hospital]);
+        $existingBookings = $stmt->fetchAll() ?: [];
 
         // Default room list template
         $rooms = [
-            ['id' => '1', 'roomNumber' => '101', 'status' => 'Available'],
-            ['id' => '2', 'roomNumber' => '102', 'status' => 'Available'],
-            ['id' => '3', 'roomNumber' => '103', 'status' => 'Occupied'],
-            ['id' => '4', 'roomNumber' => '104', 'status' => 'Available'],
-            ['id' => '5', 'roomNumber' => '105', 'status' => 'Available'],
+            ['id' => '1', 'roomNumber' => '101', 'status' => 'Available', 'user_name' => 'Vacant'],
+            ['id' => '2', 'roomNumber' => '102', 'status' => 'Available', 'user_name' => 'Vacant'],
+            ['id' => '3', 'roomNumber' => '103', 'status' => 'Available', 'user_name' => 'Vacant'],
+            ['id' => '4', 'roomNumber' => '104', 'status' => 'Available', 'user_name' => 'Vacant'],
+            ['id' => '5', 'roomNumber' => '105', 'status' => 'Available', 'user_name' => 'Vacant'],
         ];
 
-        // Mark rooms as Occupied if booked in database
+        // Mark rooms status based on live database room_bookings
         foreach ($existingBookings as $b) {
+            $bStatus = trim($b['status'] ?? '');
+            $bWard = trim($b['ward'] ?? '');
+            $bRoomRaw = trim($b['room_number'] ?? '');
+            $bRoomClean = preg_replace('/^(room|cabin|icu|ward)[-\s]*/i', '', $bRoomRaw);
+
+            // Match ward filter if specified
+            if (!empty($ward) && !empty($bWard) && strtolower($bWard) !== strtolower($ward)) {
+                // If specific ward filtered, match exact ward if available
+            }
+
             foreach ($rooms as &$r) {
-                if ($r['roomNumber'] === $b['room_number']) {
-                    $r['status'] = 'Occupied';
+                $rRoomClean = preg_replace('/^(room|cabin|icu|ward)[-\s]*/i', '', $r['roomNumber']);
+                if ($rRoomClean === $bRoomClean || strtolower($r['roomNumber']) === strtolower($bRoomRaw)) {
+                    if (strtolower($bStatus) === 'available' || $b['user_name'] === 'Vacant') {
+                        $r['status'] = 'Available';
+                        $r['user_name'] = 'Vacant';
+                    } else {
+                        $r['status'] = 'Occupied';
+                        $r['user_name'] = $b['user_name'] ?? 'Occupied Patient';
+                        $r['user_phone'] = $b['user_phone'] ?? '';
+                        $r['date_range'] = $b['date_range'] ?? '';
+                        $r['booking_id'] = $b['id'];
+                    }
                 }
             }
         }
@@ -59,22 +79,26 @@ if ($method === 'POST') {
         $status = trim($data['status'] ?? 'Available');
 
         try {
-            if ($status === 'Available') {
-                if ($roomId > 0) {
-                    $stmt = $pdo->prepare("UPDATE room_bookings SET status = 'Available', user_name = 'Vacant' WHERE id = :id");
-                    $stmt->execute([':id' => $roomId]);
-                } else if (!empty($roomNumber) && !empty($hospital)) {
-                    $stmt = $pdo->prepare("UPDATE room_bookings SET status = 'Available', user_name = 'Vacant' WHERE room_number = :room_number AND hospital = :hospital");
-                    $stmt->execute([':room_number' => $roomNumber, ':hospital' => $hospital]);
+            $checkStmt = $pdo->prepare("SELECT id FROM room_bookings WHERE (id = :id AND :id > 0) OR (room_number = :room_number AND hospital = :hospital)");
+            $checkStmt->execute([':id' => $roomId, ':room_number' => $roomNumber, ':hospital' => $hospital]);
+            $existing = $checkStmt->fetch();
+
+            if ($existing) {
+                if ($status === 'Available') {
+                    $upd = $pdo->prepare("UPDATE room_bookings SET status = 'Available', user_name = 'Vacant' WHERE id = :id");
+                    $upd->execute([':id' => $existing['id']]);
+                } else {
+                    $upd = $pdo->prepare("UPDATE room_bookings SET status = :status WHERE id = :id");
+                    $upd->execute([':status' => $status, ':id' => $existing['id']]);
                 }
-            } else {
-                if ($roomId > 0) {
-                    $stmt = $pdo->prepare("UPDATE room_bookings SET status = :status WHERE id = :id");
-                    $stmt->execute([':status' => $status, ':id' => $roomId]);
-                } else if (!empty($roomNumber) && !empty($hospital)) {
-                    $stmt = $pdo->prepare("UPDATE room_bookings SET status = :status WHERE room_number = :room_number AND hospital = :hospital");
-                    $stmt->execute([':status' => $status, ':room_number' => $roomNumber, ':hospital' => $hospital]);
-                }
+            } else if (!empty($roomNumber) && !empty($hospital)) {
+                $ins = $pdo->prepare("INSERT INTO room_bookings (hospital, ward, room_number, date_range, user_name, user_phone, status) VALUES (:hospital, 'General Ward', :room_number, 'Current Stay', :user_name, '', :status)");
+                $ins->execute([
+                    ':hospital' => $hospital,
+                    ':room_number' => $roomNumber,
+                    ':user_name' => ($status === 'Available' ? 'Vacant' : 'Reserved Patient'),
+                    ':status' => $status
+                ]);
             }
             echo json_encode(["success" => true, "message" => "Room status updated successfully!"]);
         } catch (PDOException $e) {
@@ -99,17 +123,33 @@ if ($method === 'POST') {
     }
 
     try {
-        $stmt = $pdo->prepare("INSERT INTO room_bookings (hospital, ward, room_number, date_range, user_name, user_phone, status) VALUES (:hospital, :ward, :room_number, :date_range, :user_name, :user_phone, 'Booked')");
-        $stmt->execute([
-            ':hospital' => $hospital,
-            ':ward' => $ward,
-            ':room_number' => $roomNumber,
-            ':date_range' => $dateRange,
-            ':user_name' => $userName,
-            ':user_phone' => $userPhone
-        ]);
+        // If booking an existing vacant room or creating a new room booking
+        $checkExisting = $pdo->prepare("SELECT id FROM room_bookings WHERE room_number = :room_number AND hospital = :hospital");
+        $checkExisting->execute([':room_number' => $roomNumber, ':hospital' => $hospital]);
+        $found = $checkExisting->fetch();
 
-        $bookingId = $pdo->lastInsertId();
+        if ($found) {
+            $upd = $pdo->prepare("UPDATE room_bookings SET ward = :ward, date_range = :date_range, user_name = :user_name, user_phone = :user_phone, status = 'Booked' WHERE id = :id");
+            $upd->execute([
+                ':ward' => $ward,
+                ':date_range' => $dateRange,
+                ':user_name' => $userName,
+                ':user_phone' => $userPhone,
+                ':id' => $found['id']
+            ]);
+            $bookingId = $found['id'];
+        } else {
+            $stmt = $pdo->prepare("INSERT INTO room_bookings (hospital, ward, room_number, date_range, user_name, user_phone, status) VALUES (:hospital, :ward, :room_number, :date_range, :user_name, :user_phone, 'Booked')");
+            $stmt->execute([
+                ':hospital' => $hospital,
+                ':ward' => $ward,
+                ':room_number' => $roomNumber,
+                ':date_range' => $dateRange,
+                ':user_name' => $userName,
+                ':user_phone' => $userPhone
+            ]);
+            $bookingId = $pdo->lastInsertId();
+        }
 
         echo json_encode([
             "success" => true,
