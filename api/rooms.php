@@ -79,21 +79,23 @@ if ($method === 'POST') {
         $status = trim($data['status'] ?? 'Available');
 
         try {
-            $checkStmt = $pdo->prepare("SELECT id FROM room_bookings WHERE (id = :id AND :id > 0) OR (room_number = :room_number AND hospital = :hospital) OR (LOWER(room_number) = LOWER(:room_number_raw) AND hospital = :hospital)");
-            $checkStmt->execute([
-                ':id' => $roomId, 
-                ':room_number' => $roomNumber, 
-                ':room_number_raw' => 'Room ' . $roomNumber, 
-                ':hospital' => $hospital
+            $cleanNumber = preg_replace('/^(room|cabin|icu|ward)[-\s]*/i', '', $roomNumber);
+            $stmt = $pdo->prepare("SELECT id FROM room_bookings WHERE hospital = :hospital AND (id = :id OR room_number = :rn1 OR room_number = :rn2 OR LOWER(room_number) LIKE LOWER(:rn3))");
+            $stmt->execute([
+                ':hospital' => $hospital,
+                ':id' => $roomId,
+                ':rn1' => $roomNumber,
+                ':rn2' => 'Room ' . $cleanNumber,
+                ':rn3' => '%' . $cleanNumber . '%'
             ]);
-            $existing = $checkStmt->fetch();
+            $existing = $stmt->fetch();
 
             if ($existing) {
                 if ($status === 'Available') {
                     $upd = $pdo->prepare("UPDATE room_bookings SET status = 'Available', user_name = 'Vacant' WHERE id = :id");
                     $upd->execute([':id' => $existing['id']]);
                 } else {
-                    $upd = $pdo->prepare("UPDATE room_bookings SET status = :status WHERE id = :id");
+                    $upd = $pdo->prepare("UPDATE room_bookings SET status = :status, user_name = IF(user_name = 'Vacant' OR user_name IS NULL OR user_name = '', 'Reserved Patient', user_name) WHERE id = :id");
                     $upd->execute([':status' => $status, ':id' => $existing['id']]);
                 }
             } else if (!empty($roomNumber) && !empty($hospital)) {
@@ -128,11 +130,13 @@ if ($method === 'POST') {
     }
 
     try {
-        $checkExisting = $pdo->prepare("SELECT id FROM room_bookings WHERE (room_number = :room_number OR room_number = :room_number_raw) AND hospital = :hospital");
+        $cleanNumber = preg_replace('/^(room|cabin|icu|ward)[-\s]*/i', '', $roomNumber);
+        $checkExisting = $pdo->prepare("SELECT id FROM room_bookings WHERE hospital = :hospital AND (room_number = :rn1 OR room_number = :rn2 OR LOWER(room_number) LIKE LOWER(:rn3))");
         $checkExisting->execute([
-            ':room_number' => $roomNumber,
-            ':room_number_raw' => 'Room ' . $roomNumber,
-            ':hospital' => $hospital
+            ':hospital' => $hospital,
+            ':rn1' => $roomNumber,
+            ':rn2' => 'Room ' . $cleanNumber,
+            ':rn3' => '%' . $cleanNumber . '%'
         ]);
         $found = $checkExisting->fetch();
 

@@ -409,7 +409,7 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
     const dbRooms = (dbRoomBookings || []).map((b: any) => {
       const rawNo = String(b.room_number || '101');
       const roomNo = rawNo.startsWith('Room') || rawNo.startsWith('Cabin') || rawNo.startsWith('ICU') || rawNo.startsWith('Ward') ? rawNo : `Room ${rawNo}`;
-      const isAvailable = b.status === 'Available' || b.user_name === 'Vacant';
+      const isAvailable = b.status === 'Available';
       return {
         id: b.id + 10000,
         db_id: b.id,
@@ -418,7 +418,7 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
         type: b.ward || 'General Ward',
         hospital: b.hospital || 'Dhaka Medical College Hospital',
         status: isAvailable ? 'Available' : (b.status === 'Booked' ? 'Occupied' : (b.status || 'Occupied')),
-        patient: isAvailable ? 'Vacant' : (b.user_name || 'Booked Patient'),
+        patient: isAvailable ? 'Vacant' : (b.user_name && b.user_name !== 'Vacant' ? b.user_name : (b.status === 'Reserved' ? 'Reserved Patient' : 'Occupied Patient')),
         date_range: b.date_range || ''
       };
     });
@@ -435,7 +435,7 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
     roomsList.forEach((r: any) => {
       const key = getKey(r.hospital, r.room_no);
       if (!map.has(key)) {
-        const isAvail = r.status === 'Available' || r.patient === 'Vacant';
+        const isAvail = r.status === 'Available';
         map.set(key, {
           ...r,
           status: isAvail ? 'Available' : r.status,
