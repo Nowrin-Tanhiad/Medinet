@@ -1,0 +1,6 @@
+{
+  "name": "MediConnect",
+  "description": "MediConnect - All Hospitals. One Network. Public and private hospitals, connected for better care.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
