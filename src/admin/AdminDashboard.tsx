@@ -177,17 +177,17 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
 
   const adminUid = `A-2026-${String(user.id || 1).padStart(5, '0')}`;
 
+  const normStr = (s: string) => String(s || '').toLowerCase().replace(/^dr[\.\s]*/i, '').replace(/[^a-z0-9]/g, '').trim();
+
   const filteredDoctors = doctors.filter((d: any) => 
-    !selectedHospital || selectedHospital === 'All' || d.hospital === selectedHospital
+    !selectedHospital || selectedHospital === 'All' || (d.hospital && (d.hospital === selectedHospital || d.hospital.includes(selectedHospital)))
   );
 
   useEffect(() => {
-    if (filteredDoctors.length > 0 && !filteredDoctors.some((d: any) => d.name === selectedDoctorForQueue)) {
-      setSelectedDoctorForQueue(filteredDoctors[0].name);
+    if (filteredDoctors.length > 0 && !filteredDoctors.some((d: any) => normStr(d.name || d.doctor_name) === normStr(selectedDoctorForQueue))) {
+      setSelectedDoctorForQueue(filteredDoctors[0].name || filteredDoctors[0].doctor_name);
     }
   }, [selectedHospital, filteredDoctors]);
-
-  const normStr = (s: string) => String(s || '').toLowerCase().replace(/^dr[\.\s]*/i, '').replace(/[^a-z0-9]/g, '').trim();
 
   const hospitalAppointments = appointments.filter((a: any) => {
     const appHospNorm = normStr(a.hospital);
@@ -455,16 +455,36 @@ const getBookingInfo = (dateRangeStr?: string) => {
   }
 
   const clean = dateRangeStr.trim();
-  const parts = clean.split(/\s*(?:to|–|-)\s*/i);
-  if (parts.length < 2) {
+  let startDateStr = '';
+  let endDateStr = '';
+
+  const isoMatches = clean.match(/\d{4}-\d{2}-\d{2}/g);
+  if (isoMatches && isoMatches.length >= 2) {
+    startDateStr = isoMatches[0];
+    endDateStr = isoMatches[1];
+  } else if (clean.includes(' to ')) {
+    const parts = clean.split(' to ');
+    startDateStr = parts[0];
+    endDateStr = parts[1];
+  } else if (clean.includes(' – ')) {
+    const parts = clean.split(' – ');
+    startDateStr = parts[0];
+    endDateStr = parts[1];
+  } else if (clean.includes(' - ')) {
+    const parts = clean.split(' - ');
+    startDateStr = parts[0];
+    endDateStr = parts[1];
+  }
+
+  if (!startDateStr || !endDateStr) {
     return { daysText: clean, isActive: false, endDateText: clean, diffDays: 1 };
   }
 
-  const startD = new Date(parts[0].trim());
-  const endD = new Date(parts[1].trim());
+  const startD = new Date(startDateStr.includes('T') ? startDateStr : startDateStr + 'T00:00:00');
+  const endD = new Date(endDateStr.includes('T') ? endDateStr : endDateStr + 'T23:59:59');
 
   if (isNaN(startD.getTime()) || isNaN(endD.getTime())) {
-    return { daysText: clean, isActive: false, endDateText: parts[1].trim(), diffDays: 1 };
+    return { daysText: clean, isActive: false, endDateText: endDateStr, diffDays: 1 };
   }
 
   const diffTime = Math.abs(endD.getTime() - startD.getTime());
@@ -472,12 +492,8 @@ const getBookingInfo = (dateRangeStr?: string) => {
   const daysText = `${diffDays} ${diffDays === 1 ? 'Day' : 'Days'}`;
 
   const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const isActive = today <= endD;
 
-  const endOfDay = new Date(endD);
-  endOfDay.setHours(23, 59, 59, 999);
-
-  const isActive = today <= endOfDay;
   const endDateText = endD.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
   return { daysText, isActive, endDateText, diffDays };
