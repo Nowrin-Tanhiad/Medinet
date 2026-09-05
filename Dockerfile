@@ -1,15 +1,20 @@
+# Stage 1: Build the React frontend
+FROM node:20-alpine AS frontend-builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+RUN npm run build
+
+# Stage 2: Serve PHP Backend + Compiled React Frontend with Apache
 FROM php:8.2-apache
-
-# Install MySQL PDO extension for PHP
 RUN docker-php-ext-install pdo pdo_mysql
-
-# Enable Apache rewrite module
 RUN a2enmod rewrite
 
-# Copy project files
-COPY . /var/www/html/
+# Copy everything including built dist and index.php
+COPY --from=frontend-builder /app /var/www/html/
 
-# Set working permissions
+# Set working directory permissions
 RUN chown -R www-data:www-data /var/www/html
 
 EXPOSE 80
