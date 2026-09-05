@@ -448,50 +448,103 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
     return Array.from(map.values());
   }, [dbRoomBookings, roomsList]);
 
+// Helper to parse date range string and check if reservation is still active
+const getBookingInfo = (dateRangeStr?: string) => {
+  if (!dateRangeStr || !dateRangeStr.trim()) {
+    return { daysText: '', isActive: false, endDateText: '', diffDays: 0 };
+  }
+
+  const clean = dateRangeStr.trim();
+  const parts = clean.split(/\s*(?:to|–|-)\s*/i);
+  if (parts.length < 2) {
+    return { daysText: clean, isActive: false, endDateText: clean, diffDays: 1 };
+  }
+
+  const startD = new Date(parts[0].trim());
+  const endD = new Date(parts[1].trim());
+
+  if (isNaN(startD.getTime()) || isNaN(endD.getTime())) {
+    return { daysText: clean, isActive: false, endDateText: parts[1].trim(), diffDays: 1 };
+  }
+
+  const diffTime = Math.abs(endD.getTime() - startD.getTime());
+  const diffDays = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+  const daysText = `${diffDays} ${diffDays === 1 ? 'Day' : 'Days'}`;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const endOfDay = new Date(endD);
+  endOfDay.setHours(23, 59, 59, 999);
+
+  const isActive = today <= endOfDay;
+  const endDateText = endD.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+  return { daysText, isActive, endDateText, diffDays };
+};
+
   // Change room availability (Saves to database room_bookings & localStorage)
   const handleUpdateRoomStatus = async (roomId: number, newStatus: string) => {
     const targetRoom = allRoomsCombined.find((r: any) => r.id === roomId);
-    if (targetRoom) {
-      try {
-        await fetch(getApiUrl('rooms.php'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'update_room_status',
-            room_id: targetRoom.db_id || 0,
-            room_number: targetRoom.raw_room_number || targetRoom.room_no.replace(/^Room\s+/i, ''),
-            hospital: targetRoom.hospital,
-            status: newStatus
-          })
-        });
-      } catch (e) {}
+    if (!targetRoom) return;
+
+    const bookingInfo = getBookingInfo(targetRoom.date_range);
+
+    // Rule: If patient booked the room for X days and stay is still active (date not over), Admin cannot set to Available
+    if (newStatus === 'Available' && bookingInfo.isActive && targetRoom.patient && targetRoom.patient !== 'Vacant') {
+      alert(`🔒 Cannot set room to Available yet:\n\nPatient "${targetRoom.patient}" has an active reservation for ${bookingInfo.daysText} (${targetRoom.date_range}).\n\nRoom status can only be changed to Available after the booking end date (${bookingInfo.endDateText}) has passed.`);
+      return;
     }
 
-    setRoomsList((prev: any[]) => {
-      const updated = prev.map((r: any) => {
-        if (r.id === roomId || (targetRoom && r.room_no === targetRoom.room_no && r.hospital === targetRoom.hospital)) {
-          return {
-            ...r,
-            status: newStatus,
-            patient: newStatus === 'Available' ? 'Vacant' : (r.patient === 'Vacant' ? (newStatus === 'Occupied' ? 'Occupied Patient' : 'Reserved Patient') : r.patient)
-          };
-        }
-        return r;
-      });
-      localStorage.setItem(`medinet_admin_rooms_${user.id}`, JSON.stringify(updated));
-      return updated;
-    });
+    const roomNumClean = targetRoom.raw_room_number || targetRoom.room_no.replace(/^(room|cabin|icu|ward)[-\s]*/i, '');
 
-    setDbRoomBookings((prev: any[]) => prev.map((b: any) => {
-      if (targetRoom && (b.id === targetRoom.db_id || (b.room_number === (targetRoom.raw_room_number || targetRoom.room_no.replace(/^Room\s+/i, '')) && b.hospital === targetRoom.hospital))) {
-        return {
-          ...b,
-          status: newStatus,
-          user_name: newStatus === 'Available' ? 'Vacant' : b.user_name
-        };
+    try {
+      const res = await fetch(getApiUrl('rooms.php'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update_room_status',
+          room_id: targetRoom.db_id || 0,
+          room_number: roomNumClean,
+          hospital: targetRoom.hospital,
+          status: newStatus
+        })
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setDbRoomBookings((prev: any[]) => prev.map((b: any) => {
+          const bNumClean = String(b.room_number || '').toLowerCase().replace(/^(room|cabin|icu|ward)[-\s]*/i, '').trim();
+          if (b.id === targetRoom.db_id || (bNumClean === roomNumClean.toLowerCase().trim() && b.hospital === targetRoom.hospital)) {
+            return {
+              ...b,
+              status: newStatus,
+              user_name: newStatus === 'Available' ? 'Vacant' : b.user_name
+            };
+          }
+          return b;
+        }));
+
+        setRoomsList((prev: any[]) => {
+          const updated = prev.map((r: any) => {
+            if (r.id === roomId || (r.room_no === targetRoom.room_no && r.hospital === targetRoom.hospital)) {
+              return {
+                ...r,
+                status: newStatus,
+                patient: newStatus === 'Available' ? 'Vacant' : r.patient
+              };
+            }
+            return r;
+          });
+          localStorage.setItem(`medinet_admin_rooms_${user.id}`, JSON.stringify(updated));
+          return updated;
+        });
+
+        fetchAdminData();
       }
-      return b;
-    }));
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const handleAddNewRoom = () => {
@@ -895,44 +948,65 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-              {roomRoster.map((room: any) => (
-                <div key={room.id} className="bg-white/60 backdrop-blur-md border border-white/80 p-5 rounded-2xl shadow-md space-y-3 flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center justify-between gap-2 mb-2">
-                      <span className="px-2.5 py-0.5 bg-blue-100 text-[#0066FF] rounded-full text-[10px] font-extrabold">
-                        {room.type}
-                      </span>
-                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold ${
-                        room.status === 'Available' 
-                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' 
-                          : room.status === 'Occupied'
-                          ? 'bg-rose-100 text-rose-800 border border-rose-300'
-                          : 'bg-amber-100 text-amber-800 border border-amber-300'
-                      }`}>
-                        {room.status === 'Available' ? '🟢 Available' : room.status === 'Occupied' ? '🔴 Occupied' : '🟡 Reserved'}
-                      </span>
-                    </div>
-
-                    <h4 className="font-black text-[#0A192F] text-base">{room.room_no}</h4>
-                    <p className="text-xs text-slate-500 font-medium mt-0.5">{room.hospital}</p>
-
-                    <div className="mt-3 p-2.5 rounded-xl bg-blue-50/60 border border-blue-100 flex flex-col gap-1">
-                      <div className="flex items-center justify-between gap-2">
-                        <div>
-                          <span className="text-[10px] font-bold text-slate-500 block uppercase tracking-wider">Patient In-House</span>
-                          <strong className="text-xs font-black text-[#0066FF]">
-                            {room.status === 'Available' ? 'Vacant' : (room.patient || 'Vacant')}
-                          </strong>
-                        </div>
+              {roomRoster.map((room: any) => {
+                const bInfo = getBookingInfo(room.date_range);
+                return (
+                  <div key={room.id} className="bg-white/60 backdrop-blur-md border border-white/80 p-5 rounded-2xl shadow-md space-y-3 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <span className="px-2.5 py-0.5 bg-blue-100 text-[#0066FF] rounded-full text-[10px] font-extrabold">
+                          {room.type}
+                        </span>
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold ${
+                          room.status === 'Available' 
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' 
+                            : room.status === 'Occupied'
+                            ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                            : 'bg-amber-100 text-amber-800 border border-amber-300'
+                        }`}>
+                          {room.status === 'Available' ? '🟢 Available' : room.status === 'Occupied' ? '🔴 Occupied' : '🟡 Reserved'}
+                        </span>
                       </div>
-                      {room.status !== 'Available' && room.date_range && (
-                        <div className="mt-1 pt-1 border-t border-blue-200/50 text-[10px] text-slate-600 font-semibold flex items-center gap-1">
-                          <span className="font-bold text-slate-500">Booked Dates:</span>
-                          <span className="text-blue-700 font-extrabold">{room.date_range}</span>
+
+                      <h4 className="font-black text-[#0A192F] text-base">{room.room_no}</h4>
+                      <p className="text-xs text-slate-500 font-medium mt-0.5">{room.hospital}</p>
+
+                      <div className="mt-3 p-2.5 rounded-xl bg-blue-50/60 border border-blue-100 flex flex-col gap-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <div>
+                            <span className="text-[10px] font-bold text-slate-500 block uppercase tracking-wider">Patient In-House</span>
+                            <strong className="text-xs font-black text-[#0066FF]">
+                              {room.status === 'Available' ? 'Vacant' : (room.patient || 'Vacant')}
+                            </strong>
+                          </div>
+
+                          {room.status !== 'Available' && bInfo.daysText && (
+                            <span className="px-2 py-0.5 bg-blue-100 text-[#0066FF] text-[10px] font-black rounded-lg">
+                              {bInfo.daysText}
+                            </span>
+                          )}
                         </div>
-                      )}
+
+                        {room.status !== 'Available' && room.date_range && (
+                          <div className="pt-1.5 border-t border-blue-200/50 flex flex-col gap-1 text-[10px]">
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-slate-500">Booked Dates:</span>
+                              <span className="text-blue-700 font-extrabold">{room.date_range}</span>
+                            </div>
+
+                            {bInfo.isActive ? (
+                              <span className="text-amber-700 bg-amber-50 px-2 py-0.5 rounded font-extrabold border border-amber-200 w-fit text-[9px] mt-0.5">
+                                🔒 Active Stay (Date Not Expired)
+                              </span>
+                            ) : (
+                              <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-extrabold border border-emerald-200 w-fit text-[9px] mt-0.5">
+                                ⏰ Booking Date Over (Admin Can Change)
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
 
                   {/* Admin Interactive Change Status Controls */}
                   <div className="pt-2 border-t border-slate-200/60">
@@ -973,8 +1047,9 @@ export function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
                     </div>
                   </div>
                 </div>
-              ))}
-            </div>
+              );
+            })}
+          </div>
           </div>
         )}
 

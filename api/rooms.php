@@ -25,14 +25,8 @@ if ($method === 'GET') {
         // Mark rooms status based on live database room_bookings
         foreach ($existingBookings as $b) {
             $bStatus = trim($b['status'] ?? '');
-            $bWard = trim($b['ward'] ?? '');
             $bRoomRaw = trim($b['room_number'] ?? '');
             $bRoomClean = preg_replace('/^(room|cabin|icu|ward)[-\s]*/i', '', $bRoomRaw);
-
-            // Match ward filter if specified
-            if (!empty($ward) && !empty($bWard) && strtolower($bWard) !== strtolower($ward)) {
-                // If specific ward filtered, match exact ward if available
-            }
 
             foreach ($rooms as &$r) {
                 $rRoomClean = preg_replace('/^(room|cabin|icu|ward)[-\s]*/i', '', $r['roomNumber']);
@@ -40,6 +34,12 @@ if ($method === 'GET') {
                     if (strtolower($bStatus) === 'available' || $b['user_name'] === 'Vacant') {
                         $r['status'] = 'Available';
                         $r['user_name'] = 'Vacant';
+                    } else if (strtolower($bStatus) === 'reserved') {
+                        $r['status'] = 'Reserved';
+                        $r['user_name'] = $b['user_name'] ?? 'Reserved Patient';
+                        $r['user_phone'] = $b['user_phone'] ?? '';
+                        $r['date_range'] = $b['date_range'] ?? '';
+                        $r['booking_id'] = $b['id'];
                     } else {
                         $r['status'] = 'Occupied';
                         $r['user_name'] = $b['user_name'] ?? 'Occupied Patient';
@@ -79,8 +79,13 @@ if ($method === 'POST') {
         $status = trim($data['status'] ?? 'Available');
 
         try {
-            $checkStmt = $pdo->prepare("SELECT id FROM room_bookings WHERE (id = :id AND :id > 0) OR (room_number = :room_number AND hospital = :hospital)");
-            $checkStmt->execute([':id' => $roomId, ':room_number' => $roomNumber, ':hospital' => $hospital]);
+            $checkStmt = $pdo->prepare("SELECT id FROM room_bookings WHERE (id = :id AND :id > 0) OR (room_number = :room_number AND hospital = :hospital) OR (LOWER(room_number) = LOWER(:room_number_raw) AND hospital = :hospital)");
+            $checkStmt->execute([
+                ':id' => $roomId, 
+                ':room_number' => $roomNumber, 
+                ':room_number_raw' => 'Room ' . $roomNumber, 
+                ':hospital' => $hospital
+            ]);
             $existing = $checkStmt->fetch();
 
             if ($existing) {
@@ -123,9 +128,12 @@ if ($method === 'POST') {
     }
 
     try {
-        // If booking an existing vacant room or creating a new room booking
-        $checkExisting = $pdo->prepare("SELECT id FROM room_bookings WHERE room_number = :room_number AND hospital = :hospital");
-        $checkExisting->execute([':room_number' => $roomNumber, ':hospital' => $hospital]);
+        $checkExisting = $pdo->prepare("SELECT id FROM room_bookings WHERE (room_number = :room_number OR room_number = :room_number_raw) AND hospital = :hospital");
+        $checkExisting->execute([
+            ':room_number' => $roomNumber,
+            ':room_number_raw' => 'Room ' . $roomNumber,
+            ':hospital' => $hospital
+        ]);
         $found = $checkExisting->fetch();
 
         if ($found) {
