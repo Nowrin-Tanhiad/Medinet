@@ -11,11 +11,11 @@ export default defineConfig({
   ],
   preview: {
     host: '0.0.0.0',
-    allowedHosts: true,
+    allowedHosts: ['.onrender.com', 'medinet-xd80.onrender.com', 'localhost', '127.0.0.1', 'all'],
   },
   server: {
     host: '0.0.0.0',
-    allowedHosts: true,
+    allowedHosts: ['.onrender.com', 'medinet-xd80.onrender.com', 'localhost', '127.0.0.1', 'all'],
     port: 3000,
     proxy: {
       '/api': {
