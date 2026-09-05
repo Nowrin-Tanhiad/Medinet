@@ -9,7 +9,11 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  preview: {
+    allowedHosts: true,
+  },
   server: {
+    allowedHosts: true,
     port: 3000,
     host: '0.0.0.0',
     proxy: {
