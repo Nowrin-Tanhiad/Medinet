@@ -10,31 +10,40 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
     exit();
 }
 
-$host = 'localhost';
-$dbname = 'bangladesh_healthcare';
-$user = 'root';
-$pass = '';
+$host = getenv('DB_HOST') ?: (getenv('MYSQLHOST') ?: 'localhost');
+$dbname = getenv('DB_NAME') ?: (getenv('MYSQLDATABASE') ?: 'bangladesh_healthcare');
+$user = getenv('DB_USER') ?: (getenv('MYSQLUSER') ?: 'root');
+$pass = getenv('DB_PASS') !== false ? getenv('DB_PASS') : (getenv('MYSQLPASSWORD') !== false ? getenv('MYSQLPASSWORD') : '');
+$port = getenv('DB_PORT') ?: (getenv('MYSQLPORT') ?: '3306');
 
 try {
-    // Connect to MySQL server
-    $pdoWithoutDB = new PDO("mysql:host=$host", $user, $pass, [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION
-    ]);
-    
-    // Auto-detect existing databases (bangladesh_database vs bangladesh_healthcare)
-    $dbs = $pdoWithoutDB->query("SHOW DATABASES")->fetchAll(PDO::FETCH_COLUMN);
-    if (in_array('bangladesh_database', $dbs)) {
-        $dbname = 'bangladesh_database';
+    // Connect to MySQL server or database directly
+    if ($host !== 'localhost' && $host !== '127.0.0.1') {
+        // Direct cloud database connection
+        $dsn = "mysql:host=$host;port=$port;dbname=$dbname;charset=utf8mb4";
+        $pdo = new PDO($dsn, $user, $pass, [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
+        ]);
     } else {
-        $pdoWithoutDB->exec("CREATE DATABASE IF NOT EXISTS `bangladesh_healthcare` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-        $dbname = 'bangladesh_healthcare';
+        // Local XAMPP auto-create database connection
+        $pdoWithoutDB = new PDO("mysql:host=$host;port=$port", $user, $pass, [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION
+        ]);
+        
+        $dbs = $pdoWithoutDB->query("SHOW DATABASES")->fetchAll(PDO::FETCH_COLUMN);
+        if (in_array('bangladesh_database', $dbs)) {
+            $dbname = 'bangladesh_database';
+        } else {
+            $pdoWithoutDB->exec("CREATE DATABASE IF NOT EXISTS `bangladesh_healthcare` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+            $dbname = 'bangladesh_healthcare';
+        }
+        
+        $pdo = new PDO("mysql:host=$host;port=$port;dbname=$dbname;charset=utf8mb4", $user, $pass, [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
+        ]);
     }
-    
-    // Connect to target database
-    $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $user, $pass, [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
-    ]);
 
     // 1. user table
     $pdo->exec("CREATE TABLE IF NOT EXISTS `user` (
