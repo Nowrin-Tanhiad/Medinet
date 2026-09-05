@@ -10,10 +10,12 @@ export default defineConfig({
     tailwindcss(),
   ],
   preview: {
-    allowedHosts: true,
+    host: '0.0.0.0',
+    allowedHosts: ['.onrender.com', 'medinet-xd80.onrender.com', 'localhost', '127.0.0.1'],
   },
   server: {
-    allowedHosts: true,
+    host: '0.0.0.0',
+    allowedHosts: ['.onrender.com', 'medinet-xd80.onrender.com', 'localhost', '127.0.0.1'],
     port: 3000,
     host: '0.0.0.0',
     proxy: {
